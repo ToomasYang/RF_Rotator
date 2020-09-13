@@ -1,0 +1,86 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href='../static/style.css'/>
+    <script src="//code.jquery.com/jquery-1.12.4.min.js" integrity="sha256-ZosEbRLbNQzLpnKIkEdrPv7lOy9C27hHQ+Xp8a4MxAQ=" crossorigin="anonymous"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js" integrity="sha256-yr4fRk/GU1ehYJPAs8P4JlTgu0Hdsp4ZKrx8bDEDC3I=" crossorigin="anonymous"></script>
+    <script type="text/javascript" charset="utf-8">
+        $(document).ready(function() {
+            // Use a "/test" namespace.
+            // An application can open a connection on multiple namespaces, and
+            // Socket.IO will multiplex all those connections on a single
+            // physical channel. If you don't care about multiple channels, you
+            // can set the namespace to an empty string.
+            namespace = '/test';
+
+            // Connect to the Socket.IO server.
+            // The connection URL has the following format, relative to the current page:
+            //     http[s]://<domain>:<port>[/<namespace>]
+            var socket = io(namespace);
+
+            // Event handler for new connections.
+            // The callback function is invoked when a connection with the
+            // server is established.
+            socket.on('connect', function() {
+                socket.emit('my_event', {data: 'I\'m connected!'});
+            });
+
+            // Handler for the "pong" message. When the pong is received, the
+            // time from the ping is stored, and the average of the last 30
+            // samples is average and displayed.
+            socket.on('update_angle', function(msg, cb) {
+                $('#degree_rcv').text(Math.round(msg.angle));
+            });
+        });
+    </script>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <h2>Current Angle (Degree): <b><span id="degree_rcv"></span></b> </h2>
+    <h2>Current Refresh Rate (Second): {{ refresh_rate }} </h2>
+    <h2>Current Rotation Speed (RPM): {{ RPM }} </h2>
+
+    <form action = "" method="post" nonvalidate>
+        {{ form.hidden_tag() }}
+	<p> {{ form.rst_to_zero() }} </p>
+	<p> {{form.rst_encoder() }} </p>
+	<p> {{ form.timereset() }} </p>
+	<p> {{ form.change_rpm.label }}<br>
+	    {{ form.change_rpm() }}
+	    {{ form.rpmbutton() }}
+	</p>
+	<p> {{ form.change_refresh.label }}<br>
+	    {{ form.change_refresh() }}
+	    {{ form.refreshbutton() }}
+	</p>
+	<p> {{ form.rcd() }} {{form.rcd.label }}</p>
+	<p> {{ form.forward_or_backward() }} {{ form.forward_or_backward.label }} </p>
+        <p>
+           {{ form.sec.label }}<br>
+	   {{ form.sec() }}
+           {{ form.rot_till_sec(size=32) }}
+        </p>
+        <p>
+           {{ form.deg.label }}<br>
+	   {{ form.deg() }}
+           {{ form.rot_till_agl(size=32) }}
+        </p>
+
+	<p></p>
+	<p></p>
+
+	<p></p>
+        <hr>
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <u1>
+            {% for message in messages %}
+            <li>{{ message }}</li>
+            {% endfor %}
+        </u1>
+        {% endif %}
+        {% endwith %}
+      </form>
+</body>
+</html>

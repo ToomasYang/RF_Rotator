@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+
+
+import spidev
+import os
+import socket
+import sys
+import time
+
+import eventlet
+eventlet.monkey_patch()
+
+from threading import Lock
+from flask import Flask, render_template, redirect, session, request, \
+    copy_current_request_context, url_for, jsonify
+from flask_socketio import SocketIO, emit, disconnect
+from flask_wtf import FlaskForm
+from wtforms import IntegerField, SubmitField, BooleanField, FloatField
+from wtforms.validators import DataRequired
+
+from adafruit_motorkit import MotorKit
+from adafruit_motor import stepper
+
+# Set this variable to "threading", "eventlet" or "gevent" to test the
+# different async modes, or leave it set to None for the application to choose
+# the best option based on installed packages.
+async_mode = 'eventlet'
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'secret!'
+socketio = SocketIO(app, async_mode=async_mode)
+thread = None
+thread_lock = Lock()
+
+#global time variable
+start_time = time.time()
+
+# encoder
+ENCODER_BITS = 12
+ENCODER_PREC = 2 ** ENCODER_BITS
+
+# Initializes a encoder object
+def initEncoder():
+    encoder = spidev.SpiDev()
+    encoder.open(0, 1)
+    encoder.max_speed_hz = 200000
+    return encoder
+
+
+# Prompts encoder to send two byte position
+# trims the two bytes -> 00XXXXXX XXXXXX00
+# -> XXXXXX XXXXXX (12 bits useful data)
+# combines and returns as angle
+def readEncoder(encoder):
+    encoder.writebytes([0x54])
+    angle_bytes = encoder.readbytes(2)
+    angle_byte_h = angle_bytes[0] & 0b00111111
+    angle_byte_l = angle_bytes[1] & 0b11111100
+    angle = angle_byte_h * 2 ** 8
+    angle = angle + angle_byte_l
+    angle = angle >> 2
+    return angle
+
+
+# Give degrees, converts to binary 12-bit
+def convertToCode(deg):
+    return int(round(deg / 360.0 * ENCODER_PREC))
+
+
+# Give binary 12-bit, converts to degree
+def convertToDegree(code):
+    return code / ENCODER_PREC * 360.0
+
+
+# Set current physical position as the 0 angle
+def resetEncoder():
+    encoder = initEncoder()
+    encoder.writebytes([0x00, 0x70])
+    encoder.close()
+
+# Retrieves code from encoder without the need
+# of encoder object
+def retrieveCode():
+    encoder = initEncoder()
+    code = readEncoder(encoder)
+    encoder.close()
+    return code
+
+
+# rotator
+MICROSTEPS = 16
+REV_STEPS = 2 ** 8
+RPM = 5
+
+
+# Creates and returns rotator object
+def initRotator():
+    kit = MotorKit()
+    rotator = kit.stepper1
+    rotator._microsteps = MICROSTEPS
+    return rotator
+
+
+# Create file_handler for file to record
+# angle and time
+def getRecordFile():
+    file_name = os.path.dirname(os.path.realpath(__file__))
+    file_name = file_name + "/AntennaAngle" + \
+        time.strftime('_%H_%M_%S') + ".txt"
+    file_handler = open(file_name, "w+")
+    return file_handler
+
+
+# Makes a step rotation, and records time and angle to file
+def stepRotator(rotator, record_file, encoder, tic, direction_input):
+    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
+    for i in range(MICROSTEPS):
+        rotator.onestep(style=stepper.MICROSTEP, direction = 2 - direction_input)
+        time.sleep(sec_per_step)
+    # sec_per_step = 60.0 / (REV_STEPS * RPM)
+    # rotator.onestep(style=stepper.SINGLE, direction = 2 - direction_input)
+    # time.sleep(sec_per_step)
+    rotator.release()
+    # Direction : Positive (CCW) = 2
+    # Direction : Negative (CW)  = 1
+    # direction_input is 0 or 1
+    if record_file:
+        record_file.write("%10.7f" % (time.time() - tic))
+        record_file.write(" %10.7f" % (convertToDegree(readEncoder(encoder))))
+
+    
+# Moves the antenna to its current physical 0 angle
+def resetRotator():
+    rotator = initRotator()
+    encoder = initEncoder()
+    while True:
+        stepRotator(rotator, None, encoder, time.time(), 2)
+        if (abs(readEncoder(encoder) - ENCODER_PREC / 2) >
+                (ENCODER_PREC / 2 - MICROSTEPS)):
+            break
+
+    rotator.release()
+    encoder.close()
+
+
+# Rotates the rotator at the set RPM for X seconds and direction
+# Records if needed
+def rotateTillSeconds(sec, record, direction):
+    rotator = initRotator()
+    encoder = initEncoder()
+    tic = time.time()
+    print("record: %d", record)
+    if record:
+        record_file = getRecordFile()
+        record_file.write("Start recording at %10.7f \n\n" % tic)
+    else:
+        record_file = None
+
+    while (time.time() - tic) < sec:
+        stepRotator(rotator, record_file, encoder, tic, direction)
+        
+        if record:
+            record_file.close()
+            rotator.release()
+            encoder.close()
+
+
+# Rotates the rotator at the set RPM for X degrees and direction
+# Records if needed
+def rotateTillDegrees(deg, record, direction):
+    rotator = initRotator()
+    encoder = initEncoder()
+    start_degree = readEncoder(encoder)
+    tic = time.time()
+    if record:
+        record_file = getRecordFile()
+        record_file.write("Start recording at %10.7f \n\n" % tic)
+    else:
+        record_file = None
+    delta = 0
+    total = 0
+    memory1 = convertToDegree(readEncoder(encoder))
+    memory2 = 0
+    while (total < (deg - 2)):
+        stepRotator(rotator, record_file, encoder, tic, direction)
+        memory2 = convertToDegree(readEncoder(encoder))
+        delta = abs(memory1 - memory2)
+        if delta > 100:
+            delta = 360 - delta
+        memory1 = memory2
+        total = total + delta
+        
+        #    print(total)
+    if record:
+        record_file.close()
+    rotator.release()
+    encoder.close()
+
+
+# Variables for webpage
+web_title = (socket.gethostname().upper() + ': Rotating Antenna Control Panel')
+REFRESH_RATE = 0.5
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.connect(("8.8.8.8",80))
+ip = s.getsockname()[0]
+s.close()
+
+
+# Handles updates for live angle readings on client end
+def background_thread():
+    while True:
+        socketio.sleep(REFRESH_RATE)
+        update_degree = convertToDegree(retrieveCode())
+        socketio.emit('update_angle', {'angle': update_degree}, namespace='/test')
+
+        
+# Form of the webpage, what is received each time the client sends a POST request
+class MotorForm(FlaskForm):
+    sec = IntegerField('Time (In seconds):')
+    rot_till_sec = SubmitField('Rotate till seconds')
+    deg = IntegerField('Angle (In degrees):')
+    rot_till_agl = SubmitField('Rotate till degrees')
+    rcd = BooleanField('Record (time v.s. angle)')
+    forward_or_backward = BooleanField('Backward rotation')
+    rst_to_zero = SubmitField('Reset to zero degree')
+    rst_encoder = SubmitField('Set current as zero degree')
+    refreshbutton = SubmitField('Change refresh rate')
+    change_refresh = FloatField('Change refresh rate (0.01 - 60 s)')
+    rpmbutton = SubmitField('Change RPM')
+    timereset = SubmitField('Reset Time')
+    change_rpm = IntegerField('Change RPM (1 - 30 RPM)')
+    
+    
+# Each time someone connects, default page (runs the index() function)   
+@app.route('/', methods=['GET', 'POST'])
+# Describes when someone connects and POSTs forms to the server (me),
+# what to do with the data and what actions to perform
+def index():
+    form = MotorForm()
+    global RPM
+    global REFRESH_RATE
+    templateData = {
+        'title': web_title,
+        'angle': round(convertToDegree(retrieveCode())),
+        'RPM': RPM,
+        'refresh_rate': REFRESH_RATE,
+        'form': form
+    }
+    if (form.validate_on_submit() or
+            form.rot_till_sec.data == 1 or
+           form.rot_till_agl.data == 1 or
+            form.rst_to_zero.data == 1 or
+            form.rst_encoder.data == 1 or
+            form.refreshbutton.data == 1 or
+            form.rpmbutton.data == 1 or
+            form.timereset.data == 1):
+        # flash('Recieved Angle {} {}'.format(form.setting_angle.data,
+        #           form.submit.data))
+        if form.rot_till_sec.data == 1:
+            if form.sec.data > 0:
+                rotateTillSeconds(form.sec.data, form.rcd.data, 
+                        form.forward_or_backward.data)
+            return ('',204) # Has to return something, don't want to refresh
+        elif form.rot_till_agl.data == 1:
+            if form.deg.data > 0:
+                rotateTillDegrees(form.deg.data, form.rcd.data,
+                        form.forward_or_backward.data)
+            return ('',204)
+        elif form.rst_to_zero.data == 1:
+            resetRotator()
+            return ('',204)
+        elif form.rst_encoder.data == 1:
+            resetEncoder()
+            return ('',204)
+        elif form.refreshbutton.data == 1:
+            if form.change_refresh.data >= 0.01:
+                REFRESH_RATE = form.change_refresh.data
+            return redirect(url_for('index')) # Refresh page
+        elif form.rpmbutton.data == 1:
+            if (form.change_rpm.data > 0 and
+                form.change_rpm.data <= 30):
+                RPM = form.change_rpm.data
+            return redirect(url_for('index')) 
+        elif form.timereset.data == 1:
+            global start_time
+            start_time = time.time()
+            return ('', 204)
+    else:
+        return render_template('index.html', **templateData, async_mode=socketio.async_mode)
+
+@app.route('/angle.json')
+def return_json():
+    return jsonify(angle=round(convertToDegree(retrieveCode())),
+            title = web_title,
+            rpm = RPM,
+            refresh_rate = REFRESH_RATE,
+            time = (time.time() - start_time)
+            )
+
+# Every time a new client connects, run this function
+@socketio.on('connect', namespace='/test')
+# This function starts up the background_thread() if it already isn't up
+# This handles the live updates of angle
+def test_connect():
+    global thread
+    with thread_lock:
+        if thread is None:
+            thread = socketio.start_background_task(background_thread)
+    # emit('my_response', {'data': 'Connected', 'count': 0})
+
+
+if __name__ == '__main__':
+    socketio.run(app, ip, port=80,debug=False)
+

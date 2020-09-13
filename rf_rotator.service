@@ -1,0 +1,12 @@
+[Unit]
+Description=This service starts up the web server that manages the Antenna Rotator connected to the Raspeberry Pi.
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env "/home/pi/Projects/research/project_2019_03_28_invasive_species_monitoring/codes/acquisition/RF_Rotator/rf_rotator"
+Restart=on-failure
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
