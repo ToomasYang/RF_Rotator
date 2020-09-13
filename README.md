@@ -3,6 +3,7 @@
 
 # Functionalities
 <img class="ui image" src="../images/controlpanel.png">
+
 - Change rotation speed of motor
 - Live update of angle reading to webpage
 - Change refresh rate of live updates
