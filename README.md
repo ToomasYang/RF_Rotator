@@ -28,3 +28,4 @@
   - Possible solution: Up the SPI refresh rate, purchase a different motor
 - Rotation Speed (RPM) currently not accurate, modeling of timing between microsteps inconsistent when implemented from a standalone to the server
 - When resetting or turning to a specific amount of degrees, the error margin is +/- 2 degrees
+- Bad convention for dealing with forms: Using a chained if/else to determine which button was pressed
