@@ -1,7 +1,7 @@
 <img class="ui image" src="./images/rotator.jpg">
 
 # RF_Rotator
-*PLEASE NOTE:* This repository only includes the python code for the Raspberry Pi and the webpage. However, this does not include how to build the frame! It was 3D printed from a colleague, and I do not have the source files for it.
+*PLEASE NOTE:* This repository only includes the python code for the Raspberry Pi and the webpage. However, this does not include how to build the frame! It was 3D printed from a colleague, and I do not have the source files for it. (Sorry!)
 
 # Functionalities
 <img class="ui image" src="./images/controlpanel.png">
