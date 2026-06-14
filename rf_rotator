@@ -116,16 +116,13 @@ def getRecordFile():
 def resetRotator():
     rotator = initRotator()
     encoder = initEncoder()
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
-    step_count = 0
+    sec_per_step = 60.0 / (REV_STEPS * RPM)
     while True:
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - 2)
+        rotator.onestep(style=stepper.SINGLE, direction=2 - 2)
         time.sleep(sec_per_step)
-        step_count += 1
-        if step_count % MICROSTEPS == 0:
-            if (abs(readEncoder(encoder) - ENCODER_PREC / 2) >
-                    (ENCODER_PREC / 2 - MICROSTEPS)):
-                break
+        if (abs(readEncoder(encoder) - ENCODER_PREC / 2) >
+                (ENCODER_PREC / 2 - MICROSTEPS)):
+            break
     rotator.release()
     encoder.close()
 
@@ -142,13 +139,11 @@ def rotateTillSeconds(sec, record, direction):
     else:
         record_file = None
 
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
-    step_count = 0
+    sec_per_step = 60.0 / (REV_STEPS * RPM)
     while (time.time() - tic) < sec:
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - direction)
+        rotator.onestep(style=stepper.SINGLE, direction=2 - direction)
         time.sleep(sec_per_step)
-        step_count += 1
-        if record_file and step_count % MICROSTEPS == 0:
+        if record_file:
             record_file.write("%10.7f" % (time.time() - tic))
             record_file.write(" %10.7f\n" % convertToDegree(readEncoder(encoder)))
 
@@ -170,19 +165,16 @@ def rotateTillDegrees(deg, record, direction):
     else:
         record_file = None
 
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
+    sec_per_step = 60.0 / (REV_STEPS * RPM)
     total = 0
     memory1 = convertToDegree(readEncoder(encoder))
-    step_count = 0
     while total < (deg - 2):
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - direction)
+        rotator.onestep(style=stepper.SINGLE, direction=2 - direction)
         time.sleep(sec_per_step)
-        step_count += 1
-        if step_count % MICROSTEPS == 0:
-            memory2 = convertToDegree(readEncoder(encoder))
-            delta = abs(memory1 - memory2)
-            if delta > 100:
-                delta = 360 - delta
+        memory2 = convertToDegree(readEncoder(encoder))
+        delta = abs(memory1 - memory2)
+        if delta > 100:
+            delta = 360 - delta
             memory1 = memory2
             total += delta
             if record_file:
