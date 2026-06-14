@@ -257,16 +257,16 @@ def index():
         #           form.submit.data))
         if form.rot_till_sec.data == 1:
             if form.sec.data > 0:
-                rotateTillSeconds(form.sec.data, form.rcd.data, 
+                eventlet.tpool.execute(rotateTillSeconds, form.sec.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204) # Has to return something, don't want to refresh
         elif form.rot_till_agl.data == 1:
             if form.deg.data > 0:
-                rotateTillDegrees(form.deg.data, form.rcd.data,
+                eventlet.tpool.execute(rotateTillDegrees, form.deg.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204)
         elif form.rst_to_zero.data == 1:
-            resetRotator()
+            eventlet.tpool.execute(resetRotator)
             return ('',204)
         elif form.rst_encoder.data == 1:
             resetEncoder()
