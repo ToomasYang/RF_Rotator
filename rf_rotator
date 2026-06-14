@@ -8,6 +8,7 @@ import sys
 import time
 
 import eventlet
+import eventlet.tpool
 eventlet.monkey_patch()
 
 from threading import Lock
