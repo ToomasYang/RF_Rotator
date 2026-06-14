@@ -120,7 +120,6 @@ def stepRotator(rotator, record_file, encoder, tic, direction_input):
     # sec_per_step = 60.0 / (REV_STEPS * RPM)
     # rotator.onestep(style=stepper.SINGLE, direction = 2 - direction_input)
     # time.sleep(sec_per_step)
-    rotator.release()
     # Direction : Positive (CCW) = 2
     # Direction : Negative (CW)  = 1
     # direction_input is 0 or 1
