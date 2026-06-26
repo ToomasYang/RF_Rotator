@@ -70,7 +70,7 @@ ENCODER_SPI_MODE=2 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
 ENCODER_SPI_MODE=3 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
 ```
 
-If your encoder CS is on CE0 instead of CE1, launch with:
+Default encoder CS is CE0 (SPI device 0). If needed, you can override with:
 
 ```bash
 ENCODER_SPI_BUS=0 ENCODER_SPI_DEVICE=0 ~/venv/bin/python ./rf_rotator
