@@ -19,8 +19,7 @@ from flask_wtf import FlaskForm
 from wtforms import IntegerField, SubmitField, BooleanField, FloatField
 from wtforms.validators import DataRequired
 
-from adafruit_motorkit import MotorKit
-from adafruit_motor import stepper
+import RPi.GPIO as GPIO
 
 # Set this variable to "threading", "eventlet" or "gevent" to test the
 # different async modes, or leave it set to None for the application to choose
@@ -93,12 +92,85 @@ MICROSTEPS = 16
 REV_STEPS = 2 ** 8
 RPM = 10
 
+# Waveshare Stepper Motor HAT (M1 channel) GPIO pins
+WS_DIR_PIN = 13
+WS_STEP_PIN = 19
+WS_ENABLE_PIN = 12
+WS_MODE_PINS = (16, 17, 20)
+
+# 'hardward' uses DIP switches, 'softward' drives microstep pins from software
+WS_CONTROL_MODE = 'hardward'
+
+
+class WaveshareStepper:
+    _MICROSTEP_MAP = {
+        'fullstep': (0, 0, 0),
+        'halfstep': (1, 0, 0),
+        '1/4step': (0, 1, 0),
+        '1/8step': (1, 1, 0),
+        '1/16step': (0, 0, 1),
+        '1/32step': (1, 0, 1),
+    }
+
+    def __init__(self, dir_pin, step_pin, enable_pin, mode_pins,
+                 control_mode='hardward', step_format='1/16step'):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.enable_pin = enable_pin
+        self.mode_pins = mode_pins
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(self.dir_pin, GPIO.OUT)
+        GPIO.setup(self.step_pin, GPIO.OUT)
+        GPIO.setup(self.enable_pin, GPIO.OUT)
+        GPIO.setup(self.mode_pins, GPIO.OUT)
+
+        self._set_microstep(control_mode, step_format)
+        self.release()
+
+    def _set_microstep(self, control_mode, step_format):
+        if control_mode == 'softward':
+            pins = self._MICROSTEP_MAP.get(step_format)
+            if pins is None:
+                raise ValueError(f'Unsupported microstep format: {step_format}')
+            GPIO.output(self.mode_pins, pins)
+
+    def onestep(self, style=None, direction=1):
+        # Keep compatibility with previous direction semantics.
+        # 1 = backward, 2 = forward
+        GPIO.output(self.enable_pin, 1)
+        GPIO.output(self.dir_pin, 1 if direction == 1 else 0)
+        GPIO.output(self.step_pin, 1)
+        time.sleep(0.00001)
+        GPIO.output(self.step_pin, 0)
+
+    def release(self):
+        GPIO.output(self.enable_pin, 0)
+
+
+def microstep_format_from_steps(microsteps):
+    mapping = {
+        1: 'fullstep',
+        2: 'halfstep',
+        4: '1/4step',
+        8: '1/8step',
+        16: '1/16step',
+        32: '1/32step',
+    }
+    return mapping.get(microsteps, '1/16step')
+
 
 # Creates and returns rotator object
 def initRotator():
-    kit = MotorKit()
-    rotator = kit.stepper1
-    rotator._microsteps = MICROSTEPS
+    rotator = WaveshareStepper(
+        dir_pin=WS_DIR_PIN,
+        step_pin=WS_STEP_PIN,
+        enable_pin=WS_ENABLE_PIN,
+        mode_pins=WS_MODE_PINS,
+        control_mode=WS_CONTROL_MODE,
+        step_format=microstep_format_from_steps(MICROSTEPS)
+    )
     return rotator
 
 
@@ -120,7 +192,7 @@ def resetRotator():
     next_step = time.monotonic()
     step_count = 0
     while True:
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - 2)
+        rotator.onestep(direction=2 - 2)
         step_count += 1
         next_step += sec_per_step
         remaining = next_step - time.monotonic()
@@ -150,7 +222,7 @@ def rotateTillSeconds(sec, record, direction):
     next_step = time.monotonic()
     step_count = 0
     while (time.time() - tic) < sec:
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - direction)
+        rotator.onestep(direction=2 - direction)
         step_count += 1
         next_step += sec_per_step
         remaining = next_step - time.monotonic()
@@ -184,7 +256,7 @@ def rotateTillDegrees(deg, record, direction):
     memory1 = convertToDegree(readEncoder(encoder))
     step_count = 0
     while total < (deg - 2):
-        rotator.onestep(style=stepper.MICROSTEP, direction=2 - direction)
+        rotator.onestep(direction=2 - direction)
         step_count += 1
         next_step += sec_per_step
         remaining = next_step - time.monotonic()

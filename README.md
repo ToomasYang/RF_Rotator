@@ -17,9 +17,17 @@
 
 # Materials
 - 1 Trinamic QSH4218-35-18-027 stepper motor
-- 1 Raspberry Pi 3 w/ Adafruit Stepper MotorHAT
+- 1 Raspberry Pi 3 w/ Waveshare Stepper Motor HAT
 - 1 CUI AMT22 Modular Absolute Encoders 12 bit Single-Turn
 - 1 SPI cable, with female headers -> male SPI interface
+
+## Waveshare HAT Notes
+
+- The motor control code in `rf_rotator` now uses the DRV8825 GPIO interface used by the Waveshare Stepper Motor HAT.
+- Default motor channel is M1 (BCM pins DIR=13, STEP=19, EN=12, MODE=16/17/20).
+- If your wiring is on M2 or uses different pins, update `WS_DIR_PIN`, `WS_STEP_PIN`, `WS_ENABLE_PIN`, and `WS_MODE_PINS` in `rf_rotator`.
+- `WS_CONTROL_MODE = 'hardward'` means microstep mode comes from DIP switches.
+- Keep `MICROSTEPS` in code consistent with the DIP microstep setting so timing and degree calculations remain accurate.
 
 # Improvements / Problems
 - Page remains unresponsive once you start rotating (still updates angle reading), becomes responsive once it stops rotating
