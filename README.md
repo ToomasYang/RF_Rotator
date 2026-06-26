@@ -70,6 +70,26 @@ ENCODER_SPI_MODE=2 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
 ENCODER_SPI_MODE=3 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
 ```
 
+If your encoder CS is on CE0 instead of CE1, launch with:
+
+```bash
+ENCODER_SPI_BUS=0 ENCODER_SPI_DEVICE=0 ~/venv/bin/python ./rf_rotator
+```
+
+You can also tune byte timing and checksum behavior:
+
+```bash
+ENCODER_BYTE_DELAY_US=3 ENCODER_REQUIRE_CHECKSUM=0 ~/venv/bin/python ./rf_rotator
+```
+
+Live diagnostics endpoint:
+
+```text
+http://<pi-ip>:5000/encoder_debug.json
+```
+
+Use it to confirm whether raw SPI frames are changing while rotating.
+
 # Troubleshooting: GPIO Access (/dev/mem)
 
 If motor actions fail with `RuntimeError: No access to /dev/mem`, grant GPIO access to the runtime user:

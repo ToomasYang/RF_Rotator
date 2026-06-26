@@ -34,11 +34,16 @@ start_time = time.time()
 # encoder
 ENCODER_BITS = 12
 ENCODER_PREC = 2 ** ENCODER_BITS
+ENCODER_SPI_BUS = int(os.environ.get('ENCODER_SPI_BUS', '0'))
+ENCODER_SPI_DEVICE = int(os.environ.get('ENCODER_SPI_DEVICE', '1'))
 ENCODER_SPI_MODE = int(os.environ.get('ENCODER_SPI_MODE', '0'))
 ENCODER_SPI_HZ = int(os.environ.get('ENCODER_SPI_HZ', '500000'))
+ENCODER_BYTE_DELAY_US = int(os.environ.get('ENCODER_BYTE_DELAY_US', '3'))
 ENCODER_MAX_RETRIES = int(os.environ.get('ENCODER_MAX_RETRIES', '3'))
+ENCODER_REQUIRE_CHECKSUM = os.environ.get('ENCODER_REQUIRE_CHECKSUM', '0') == '1'
 encoder_error_logged = False
 gpio_error_logged = False
+encoder_checksum_warning_logged = False
 
 
 def log_encoder_access_error(exc):
@@ -64,7 +69,7 @@ def log_gpio_access_error(exc):
 def initEncoder():
     try:
         encoder = spidev.SpiDev()
-        encoder.open(0, 1)
+        encoder.open(ENCODER_SPI_BUS, ENCODER_SPI_DEVICE)
         encoder.max_speed_hz = ENCODER_SPI_HZ
         encoder.mode = ENCODER_SPI_MODE
         encoder.bits_per_word = 8
@@ -82,29 +87,46 @@ def verifyEncoderChecksum(message):
     return checksum == (message >> 14)
 
 
+def parseEncoderPosition(raw):
+    position = raw & 0x3FFF
+    if ENCODER_BITS == 12:
+        position >>= 2
+    return position
+
+
 # Prompts encoder to send two byte position
 # trims the two bytes -> 00XXXXXX XXXXXX00
 # -> XXXXXX XXXXXX (12 bits useful data)
 # combines and returns as angle
 def readEncoder(encoder):
+    global encoder_checksum_warning_logged
     if encoder is None:
         return None
+
+    last_raw = None
     for _ in range(ENCODER_MAX_RETRIES):
         # AMT22 position read: transfer 0x00 0x00 in one CS transaction.
-        rx = encoder.xfer2([0x00, 0x00])
+        rx = encoder.xfer2([0x00, 0x00], ENCODER_SPI_HZ, ENCODER_BYTE_DELAY_US)
         if len(rx) != 2:
             continue
 
         raw = (rx[0] << 8) | rx[1]
+        last_raw = raw
         if not verifyEncoderChecksum(raw):
             # AMT22 requires small timing gaps between transfers.
             time.sleep(0.00001)
             continue
 
-        position = raw & 0x3FFF
-        if ENCODER_BITS == 12:
-            position >>= 2
-        return position
+        return parseEncoderPosition(raw)
+
+    if not ENCODER_REQUIRE_CHECKSUM and last_raw is not None and last_raw not in (0x0000, 0xFFFF):
+        if not encoder_checksum_warning_logged:
+            app.logger.warning(
+                'Encoder checksum validation failed; using raw fallback values. '
+                'Set ENCODER_REQUIRE_CHECKSUM=1 to enforce strict mode.'
+            )
+            encoder_checksum_warning_logged = True
+        return parseEncoderPosition(last_raw)
 
     return None
 
@@ -147,6 +169,39 @@ def retrieveAngle():
     if code is None:
         return None
     return convertToDegree(code)
+
+
+def readEncoderDiagnostics(sample_count=6):
+    encoder = initEncoder()
+    if encoder is None:
+        return None
+
+    try:
+        samples = []
+        for _ in range(sample_count):
+            rx = encoder.xfer2([0x00, 0x00], ENCODER_SPI_HZ, ENCODER_BYTE_DELAY_US)
+            raw = (rx[0] << 8) | rx[1] if len(rx) == 2 else None
+            valid = verifyEncoderChecksum(raw) if raw is not None else False
+            parsed = parseEncoderPosition(raw) if raw is not None else None
+            samples.append({
+                'rx': rx,
+                'raw': raw,
+                'checksum_valid': valid,
+                'position': parsed,
+            })
+            time.sleep(0.01)
+
+        return {
+            'spi_bus': ENCODER_SPI_BUS,
+            'spi_device': ENCODER_SPI_DEVICE,
+            'spi_mode': ENCODER_SPI_MODE,
+            'spi_hz': ENCODER_SPI_HZ,
+            'byte_delay_us': ENCODER_BYTE_DELAY_US,
+            'require_checksum': ENCODER_REQUIRE_CHECKSUM,
+            'samples': samples,
+        }
+    finally:
+        encoder.close()
 
 
 # rotator
@@ -520,6 +575,19 @@ def return_json():
             refresh_rate = REFRESH_RATE,
             time = (time.time() - start_time)
             )
+
+
+@app.route('/encoder_debug.json')
+def encoder_debug_json():
+    diagnostics = readEncoderDiagnostics()
+    if diagnostics is None:
+        return jsonify(error='Encoder unavailable',
+                       spi_bus=ENCODER_SPI_BUS,
+                       spi_device=ENCODER_SPI_DEVICE,
+                       spi_mode=ENCODER_SPI_MODE,
+                       spi_hz=ENCODER_SPI_HZ,
+                       byte_delay_us=ENCODER_BYTE_DELAY_US), 503
+    return jsonify(diagnostics)
 
 # Every time a new client connects, run this function
 @socketio.on('connect', namespace='/test')
