@@ -261,6 +261,7 @@ MICROSTEPS = 16
 REV_STEPS = 2 ** 8
 RPM = 10
 DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.1'))
+speed_limit_warning_logged = False
 
 # Waveshare Stepper Motor HAT channel/pin settings.
 # Set WS_MOTOR_CHANNEL to M1 or M2 in the environment as needed.
@@ -294,7 +295,7 @@ WS_ENABLE_ACTIVE_HIGH = os.environ.get('WS_ENABLE_ACTIVE_HIGH', '1') == '1'
 WS_INVERT_DIR = os.environ.get('WS_INVERT_DIR', '0') == '1'
 
 # Pulse width in seconds for STEP high/low timing.
-WS_STEP_PULSE_SEC = float(os.environ.get('WS_STEP_PULSE_SEC', '0.001'))
+WS_STEP_PULSE_SEC = float(os.environ.get('WS_STEP_PULSE_SEC', '0.0001'))
 
 
 class WaveshareStepper:
@@ -371,6 +372,24 @@ def microstep_format_from_steps(microsteps):
     return mapping.get(microsteps, '1/16step')
 
 
+def calc_sec_per_step(rpm):
+    global speed_limit_warning_logged
+    requested = 60.0 / (REV_STEPS * rpm * MICROSTEPS)
+    min_pulse_period = WS_STEP_PULSE_SEC * 2.0
+    if requested < min_pulse_period:
+        if not speed_limit_warning_logged:
+            max_effective_rpm = 60.0 / (REV_STEPS * MICROSTEPS * min_pulse_period)
+            app.logger.warning(
+                'Requested RPM is above pulse-timing limit. '\
+                'Increase speed by lowering WS_STEP_PULSE_SEC. '\
+                'Current max effective RPM is about %.2f',
+                max_effective_rpm
+            )
+            speed_limit_warning_logged = True
+        return min_pulse_period
+    return requested
+
+
 # Creates and returns rotator object
 def initRotator():
     try:
@@ -411,7 +430,7 @@ def resetRotator():
     if encoder is None:
         rotator.release()
         return
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
+    sec_per_step = calc_sec_per_step(RPM)
     next_step = time.monotonic()
     step_count = 0
     while True:
@@ -449,7 +468,7 @@ def rotateTillSeconds(sec, record, direction):
     else:
         record_file = None
 
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
+    sec_per_step = calc_sec_per_step(RPM)
     next_step = time.monotonic()
     step_count = 0
     while (time.time() - tic) < sec:
@@ -489,7 +508,7 @@ def rotateTillDegrees(deg, record, direction):
     else:
         record_file = None
 
-    sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
+    sec_per_step = calc_sec_per_step(RPM)
     next_step = time.monotonic()
     target_counts = int(round((deg / 360.0) * ENCODER_PREC))
     tolerance_counts = max(1, int(round((DEGREE_TOLERANCE_DEG / 360.0) * ENCODER_PREC)))
@@ -630,7 +649,7 @@ def index():
             return redirect(url_for('index')) # Refresh page
         elif form.rpmbutton.data == 1:
             if (form.change_rpm.data is not None and
-                    form.change_rpm.data >= 10 and
+                    form.change_rpm.data >= 1 and
                     form.change_rpm.data <= 30):
                 RPM = form.change_rpm.data
             return redirect(url_for('index')) 

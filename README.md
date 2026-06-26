@@ -143,13 +143,18 @@ If running as a systemd service, make sure the service user belongs to `gpio` (a
 - If the motor still does not move, try these runtime flags:
   - `WS_ENABLE_ACTIVE_HIGH=0` for older active-low enable boards.
   - `WS_INVERT_DIR=1` if direction is reversed.
-  - Increase pulse width: `WS_STEP_PULSE_SEC=0.002`.
+  - Increase pulse width for reliability: `WS_STEP_PULSE_SEC=0.002`.
 
 Example launch:
 
 ```bash
 WS_MOTOR_CHANNEL=M1 WS_ENABLE_ACTIVE_HIGH=1 WS_STEP_PULSE_SEC=0.002 ~/venv/bin/python ./rf_rotator
 ```
+
+RPM note:
+
+- Speed is limited by step pulse timing (`WS_STEP_PULSE_SEC`).
+- If RPM changes do not appear to take effect at higher values, lower pulse width (for example `WS_STEP_PULSE_SEC=0.0001`).
 
 Degree rotation tuning:
 
