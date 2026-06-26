@@ -260,7 +260,7 @@ def scanEncoderCandidates(sample_count=4):
 MICROSTEPS = 16
 REV_STEPS = 2 ** 8
 RPM = 10
-DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '1.0'))
+DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.25'))
 
 # Waveshare Stepper Motor HAT channel/pin settings.
 # Set WS_MOTOR_CHANNEL to M1 or M2 in the environment as needed.
@@ -493,6 +493,7 @@ def rotateTillDegrees(deg, record, direction):
     next_step = time.monotonic()
     target_counts = int(round((deg / 360.0) * ENCODER_PREC))
     tolerance_counts = max(1, int(round((DEGREE_TOLERANCE_DEG / 360.0) * ENCODER_PREC)))
+    fine_window_counts = max(4, int(round((2.0 / 360.0) * ENCODER_PREC)))
     total_counts = 0
     first_code = readEncoder(encoder)
     if first_code is None:
@@ -510,7 +511,10 @@ def rotateTillDegrees(deg, record, direction):
         remaining = next_step - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
-        if step_count % max(1, MICROSTEPS // 4) == 0:
+
+        remaining_counts = target_counts - total_counts
+        check_interval = 1 if remaining_counts <= fine_window_counts else max(1, MICROSTEPS // 4)
+        if step_count % check_interval == 0:
             code2 = readEncoder(encoder)
             if code2 is None:
                 stagnant_checks += 1
@@ -638,7 +642,7 @@ def index():
 @app.route('/angle.json')
 def return_json():
     angle = retrieveAngle()
-    rounded_angle = round(angle) if angle is not None else None
+    rounded_angle = round(angle, 1) if angle is not None else None
     return jsonify(angle=rounded_angle,
             title = web_title,
             rpm = RPM,

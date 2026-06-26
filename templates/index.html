@@ -33,7 +33,7 @@
                 if (msg.angle === null || msg.angle === undefined) {
                     $('#degree_rcv').text('N/A');
                 } else {
-                    $('#degree_rcv').text(Math.round(msg.angle));
+                    $('#degree_rcv').text(Number(msg.angle).toFixed(1));
                 }
             });
         });
@@ -41,7 +41,7 @@
 </head>
 <body>
     <h1>{{ title }}</h1>
-    <h2>Current Angle (Degree): <b><span id="degree_rcv">{% if angle is not none %}{{ angle|round }}{% else %}N/A{% endif %}</span></b> </h2>
+    <h2>Current Angle (Degree): <b><span id="degree_rcv">{% if angle is not none %}{{ '%.1f'|format(angle) }}{% else %}N/A{% endif %}</span></b> </h2>
     <h2>Current Refresh Rate (Second): {{ refresh_rate }} </h2>
     <h2>Current Rotation Speed (RPM): {{ RPM }} </h2>
 
