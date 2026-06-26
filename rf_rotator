@@ -608,12 +608,12 @@ def index():
         # flash('Recieved Angle {} {}'.format(form.setting_angle.data,
         #           form.submit.data))
         if form.rot_till_sec.data == 1:
-            if form.sec.data > 0:
+            if form.sec.data is not None and form.sec.data > 0:
                 start_motor_task(rotateTillSeconds, form.sec.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204) # Has to return something, don't want to refresh
         elif form.rot_till_agl.data == 1:
-            if form.deg.data > 0:
+            if form.deg.data is not None and form.deg.data > 0:
                 start_motor_task(rotateTillDegrees, form.deg.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204)
@@ -624,12 +624,14 @@ def index():
             resetEncoder()
             return ('',204)
         elif form.refreshbutton.data == 1:
-            if form.change_refresh.data >= 0.01:
+            if (form.change_refresh.data is not None and
+                    form.change_refresh.data >= 0.01):
                 REFRESH_RATE = form.change_refresh.data
             return redirect(url_for('index')) # Refresh page
         elif form.rpmbutton.data == 1:
-            if (form.change_rpm.data >= 10 and
-                form.change_rpm.data <= 30):
+            if (form.change_rpm.data is not None and
+                    form.change_rpm.data >= 10 and
+                    form.change_rpm.data <= 30):
                 RPM = form.change_rpm.data
             return redirect(url_for('index')) 
         elif form.timereset.data == 1:
