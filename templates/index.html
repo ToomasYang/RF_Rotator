@@ -44,6 +44,8 @@
     <h2>Current Angle (Degree): <b><span id="degree_rcv">{% if angle is not none %}{{ '%.1f'|format(angle) }}{% else %}N/A{% endif %}</span></b> </h2>
     <h2>Current Refresh Rate (Second): {{ refresh_rate }} </h2>
     <h2>Current Rotation Speed (RPM): {{ RPM }} </h2>
+    <h2>RPM Calibration Factor: {{ '%.6f'|format(rpm_calibration_factor) }} </h2>
+    <h3>Calibration Status: {{ rpm_calibration_status.message }} </h3>
 
     <form action = "" method="post" nonvalidate>
         {{ form.hidden_tag() }}
@@ -58,6 +60,10 @@
 	    {{ form.change_refresh() }}
 	    {{ form.refreshbutton() }}
 	</p>
+    <p> {{ form.calib_duration.label }}<br>
+        {{ form.calib_duration() }}
+        {{ form.calibrate_rpm() }}
+    </p>
 	<p> {{ form.rcd() }} {{form.rcd.label }}</p>
 	<p> {{ form.forward_or_backward() }} {{ form.forward_or_backward.label }} </p>
         <p>

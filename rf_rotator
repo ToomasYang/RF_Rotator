@@ -265,6 +265,14 @@ RPM = 10
 RPM_CALIBRATION_FACTOR = float(os.environ.get('RPM_CALIBRATION_FACTOR', '1.0'))
 DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.1'))
 speed_limit_warning_logged = False
+calibration_lock = Lock()
+calibration_status = {
+    'running': False,
+    'message': 'Not calibrated yet.',
+    'last_measured_rpm': None,
+    'last_duration_sec': None,
+    'last_updated_epoch': None,
+}
 
 # Waveshare Stepper Motor HAT channel/pin settings.
 # Set WS_MOTOR_CHANNEL to M1 or M2 in the environment as needed.
@@ -392,6 +400,96 @@ def calc_sec_per_step(rpm):
             speed_limit_warning_logged = True
         return min_pulse_period
     return requested
+
+
+def get_calibration_status():
+    status = dict(calibration_status)
+    status['current_factor'] = round(RPM_CALIBRATION_FACTOR, 6)
+    return status
+
+
+def update_calibration_status(message, measured_rpm=None, duration_sec=None):
+    calibration_status['message'] = message
+    calibration_status['last_measured_rpm'] = measured_rpm
+    calibration_status['last_duration_sec'] = duration_sec
+    calibration_status['last_updated_epoch'] = time.time()
+
+
+def calibrateRpmFactor(duration_sec=20, direction=0):
+    global RPM_CALIBRATION_FACTOR
+
+    with calibration_lock:
+        calibration_status['running'] = True
+        update_calibration_status('Running RPM calibration...')
+
+        rotator = initRotator()
+        if rotator is None:
+            calibration_status['running'] = False
+            update_calibration_status('Calibration failed: GPIO unavailable.')
+            return
+
+        encoder = initEncoder()
+        if encoder is None:
+            rotator.release()
+            calibration_status['running'] = False
+            update_calibration_status('Calibration failed: encoder unavailable.')
+            return
+
+        try:
+            sec_per_step = calc_sec_per_step(RPM)
+            start = time.time()
+            next_step = time.monotonic()
+            step_count = 0
+            moved_counts = 0
+
+            code = readEncoder(encoder)
+            if code is None:
+                calibration_status['running'] = False
+                update_calibration_status('Calibration failed: invalid initial encoder read.')
+                return
+            previous_code = code
+
+            while (time.time() - start) < duration_sec:
+                rotator.onestep(direction=2 - direction)
+                step_count += 1
+                next_step += sec_per_step
+                remaining = next_step - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+
+                if step_count % max(1, MICROSTEPS // 4) == 0:
+                    code2 = readEncoder(encoder)
+                    if code2 is None:
+                        continue
+                    forward_delta = (code2 - previous_code) % ENCODER_PREC
+                    backward_delta = (previous_code - code2) % ENCODER_PREC
+                    moved_counts += min(forward_delta, backward_delta)
+                    previous_code = code2
+
+            elapsed_sec = max(0.001, time.time() - start)
+            measured_turns = moved_counts / float(ENCODER_PREC)
+            measured_rpm = measured_turns / (elapsed_sec / 60.0)
+
+            if measured_rpm <= 0.01:
+                calibration_status['running'] = False
+                update_calibration_status(
+                    'Calibration failed: measured RPM too low to calibrate.',
+                    measured_rpm=round(measured_rpm, 4),
+                    duration_sec=round(elapsed_sec, 2),
+                )
+                return
+
+            new_factor = RPM_CALIBRATION_FACTOR * (RPM / measured_rpm)
+            RPM_CALIBRATION_FACTOR = new_factor
+            calibration_status['running'] = False
+            update_calibration_status(
+                f'Calibration complete. New factor: {new_factor:.6f}',
+                measured_rpm=round(measured_rpm, 4),
+                duration_sec=round(elapsed_sec, 2),
+            )
+        finally:
+            rotator.release()
+            encoder.close()
 
 
 # Creates and returns rotator object
@@ -601,6 +699,8 @@ class MotorForm(FlaskForm):
     refreshbutton = SubmitField('Change refresh rate')
     change_refresh = FloatField('Change refresh rate (0.01 - 60 s)')
     rpmbutton = SubmitField('Change RPM')
+    calib_duration = IntegerField('RPM calibration duration (5 - 120 s):')
+    calibrate_rpm = SubmitField('Auto-calibrate RPM')
     timereset = SubmitField('Reset Time')
     change_rpm = IntegerField('Change RPM (1 - 30 RPM)')
     
@@ -617,6 +717,8 @@ def index():
         'title': web_title,
         'angle': retrieveAngle(),
         'RPM': RPM,
+        'rpm_calibration_factor': round(RPM_CALIBRATION_FACTOR, 6),
+        'rpm_calibration_status': get_calibration_status(),
         'refresh_rate': REFRESH_RATE,
         'form': form
     }
@@ -627,6 +729,7 @@ def index():
             form.rst_encoder.data == 1 or
             form.refreshbutton.data == 1 or
             form.rpmbutton.data == 1 or
+            form.calibrate_rpm.data == 1 or
             form.timereset.data == 1):
         # flash('Recieved Angle {} {}'.format(form.setting_angle.data,
         #           form.submit.data))
@@ -657,6 +760,14 @@ def index():
                     form.change_rpm.data <= 30):
                 RPM = form.change_rpm.data
             return redirect(url_for('index')) 
+        elif form.calibrate_rpm.data == 1:
+            duration = form.calib_duration.data if form.calib_duration.data is not None else 20
+            duration = max(5, min(duration, 120))
+            if calibration_status['running']:
+                app.logger.info('RPM calibration already running; ignoring duplicate request.')
+            else:
+                start_motor_task(calibrateRpmFactor, duration, form.forward_or_backward.data)
+            return redirect(url_for('index'))
         elif form.timereset.data == 1:
             global start_time
             start_time = time.time()
@@ -671,9 +782,16 @@ def return_json():
     return jsonify(angle=rounded_angle,
             title = web_title,
             rpm = RPM,
+            rpm_calibration_factor = round(RPM_CALIBRATION_FACTOR, 6),
+            rpm_calibration_status = get_calibration_status(),
             refresh_rate = REFRESH_RATE,
             time = (time.time() - start_time)
             )
+
+
+@app.route('/rpm_calibration.json')
+def rpm_calibration_json():
+    return jsonify(get_calibration_status())
 
 
 @app.route('/encoder_debug.json')

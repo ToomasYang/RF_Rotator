@@ -175,6 +175,18 @@ Example: if command `10 RPM` gives `5 RPM`, set factor to `2.0`:
 RPM_CALIBRATION_FACTOR=2.0 ~/venv/bin/python ./rf_rotator
 ```
 
+Automatic RPM calibration:
+
+- Use the web UI `Auto-calibrate RPM` button.
+- Set `RPM calibration duration` (recommended 20-60 seconds).
+- Keep mechanical load consistent and avoid other motion commands while calibrating.
+
+Calibration status endpoint:
+
+```text
+http://<pi-ip>:5000/rpm_calibration.json
+```
+
 Degree rotation tuning:
 
 - `DEGREE_TOLERANCE_DEG` controls how close rotate-by-degrees should get before stopping (default `0.25`).
