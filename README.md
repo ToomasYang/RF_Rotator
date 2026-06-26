@@ -165,6 +165,16 @@ Example (1.8-degree motor at 1/32 microstepping):
 MOTOR_FULL_STEPS_PER_REV=200 MICROSTEPS=32 ~/venv/bin/python ./rf_rotator
 ```
 
+If measured speed is consistently off by a factor, use:
+
+- `RPM_CALIBRATION_FACTOR = target_rpm / measured_rpm`
+
+Example: if command `10 RPM` gives `5 RPM`, set factor to `2.0`:
+
+```bash
+RPM_CALIBRATION_FACTOR=2.0 ~/venv/bin/python ./rf_rotator
+```
+
 Degree rotation tuning:
 
 - `DEGREE_TOLERANCE_DEG` controls how close rotate-by-degrees should get before stopping (default `0.25`).
