@@ -151,6 +151,15 @@ Example launch:
 WS_MOTOR_CHANNEL=M1 WS_ENABLE_ACTIVE_HIGH=1 WS_STEP_PULSE_SEC=0.002 ~/venv/bin/python ./rf_rotator
 ```
 
+Degree rotation tuning:
+
+- `DEGREE_TOLERANCE_DEG` controls how close rotate-by-degrees should get before stopping (default `1.0`).
+- Lower values increase precision but may take longer and may hunt near the target.
+
+```bash
+DEGREE_TOLERANCE_DEG=0.5 ~/venv/bin/python ./rf_rotator
+```
+
 # Improvements / Problems
 - Page remains unresponsive once you start rotating (still updates angle reading), becomes responsive once it stops rotating
   - Possible solution: Run on a child process/parallel thread

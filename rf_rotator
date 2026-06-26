@@ -260,6 +260,7 @@ def scanEncoderCandidates(sample_count=4):
 MICROSTEPS = 16
 REV_STEPS = 2 ** 8
 RPM = 10
+DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '1.0'))
 
 # Waveshare Stepper Motor HAT channel/pin settings.
 # Set WS_MOTOR_CHANNEL to M1 or M2 in the environment as needed.
@@ -490,35 +491,52 @@ def rotateTillDegrees(deg, record, direction):
 
     sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
     next_step = time.monotonic()
-    total = 0
+    target_counts = int(round((deg / 360.0) * ENCODER_PREC))
+    tolerance_counts = max(1, int(round((DEGREE_TOLERANCE_DEG / 360.0) * ENCODER_PREC)))
+    total_counts = 0
     first_code = readEncoder(encoder)
     if first_code is None:
         rotator.release()
         encoder.close()
         app.logger.warning('Cannot rotate by degrees because encoder readings are invalid.')
         return
-    memory1 = convertToDegree(first_code)
+    previous_code = first_code
     step_count = 0
-    while total < (deg - 2):
+    stagnant_checks = 0
+    while total_counts + tolerance_counts < target_counts:
         rotator.onestep(direction=2 - direction)
         step_count += 1
         next_step += sec_per_step
         remaining = next_step - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
-        if step_count % MICROSTEPS == 0:
+        if step_count % max(1, MICROSTEPS // 4) == 0:
             code2 = readEncoder(encoder)
             if code2 is None:
+                stagnant_checks += 1
+                if stagnant_checks > 20:
+                    app.logger.warning('Stopping degree rotation: repeated invalid encoder reads.')
+                    break
                 continue
-            memory2 = convertToDegree(code2)
-            delta = abs(memory1 - memory2)
-            if delta > 100:
-                delta = 360 - delta
-            memory1 = memory2
-            total += delta
+
+            # Track movement in encoder counts with wrap-around awareness.
+            forward_delta = (code2 - previous_code) % ENCODER_PREC
+            backward_delta = (previous_code - code2) % ENCODER_PREC
+            moved_counts = min(forward_delta, backward_delta)
+
+            if moved_counts == 0:
+                stagnant_checks += 1
+                if stagnant_checks > 50:
+                    app.logger.warning('Stopping degree rotation: encoder reports no movement.')
+                    break
+            else:
+                stagnant_checks = 0
+                total_counts += moved_counts
+
+            previous_code = code2
             if record_file:
                 record_file.write("%10.7f" % (time.time() - tic))
-                record_file.write(" %10.7f\n" % memory2)
+                record_file.write(" %10.7f\n" % convertToDegree(code2))
 
     if record_file:
         record_file.close()
