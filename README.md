@@ -42,6 +42,51 @@ ls -l /dev/spidev*
 
 If your service runs as a custom user, make sure that user is in the `spi` group.
 
+# Troubleshooting: AMT22 Stuck At 0 Degrees
+
+For AMT222A-V, the code now uses the native AMT22 read sequence (0x00, 0x00) with checksum validation.
+
+If angle still stays at 0:
+
+1. Verify AMT22 switch is in RUN mode (not programming mode).
+2. Verify wiring for SPI and CS pin for CE1 (device 0,1):
+  - Pi SCLK -> encoder SCLK
+  - Pi MOSI -> encoder MOSI
+  - Pi MISO -> encoder MISO
+  - Pi CE1 -> encoder CS
+  - Pi GND -> encoder GND
+  - Pi 5V -> encoder VCC (as required by your module/cable)
+3. Try SPI mode and speed overrides at launch:
+
+```bash
+ENCODER_SPI_MODE=0 ENCODER_SPI_HZ=500000 ~/venv/bin/python ./rf_rotator
+```
+
+If needed, test alternate modes:
+
+```bash
+ENCODER_SPI_MODE=1 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
+ENCODER_SPI_MODE=2 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
+ENCODER_SPI_MODE=3 ENCODER_SPI_HZ=200000 ~/venv/bin/python ./rf_rotator
+```
+
+# Troubleshooting: GPIO Access (/dev/mem)
+
+If motor actions fail with `RuntimeError: No access to /dev/mem`, grant GPIO access to the runtime user:
+
+```bash
+sudo usermod -aG gpio $USER
+sudo reboot
+```
+
+After reboot, confirm group membership:
+
+```bash
+id
+```
+
+If running as a systemd service, make sure the service user belongs to `gpio` (and `spi` if encoder is used).
+
 # Functionalities
 <img class="ui image" src="./images/controlpanel.png">
 

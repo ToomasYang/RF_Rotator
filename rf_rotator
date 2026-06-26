@@ -24,7 +24,7 @@ async_mode = 'threading'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, async_mode=async_mode)
+socketio = SocketIO(app, async_mode=async_mode, allow_eio3=True)
 thread = None
 thread_lock = Lock()
 
@@ -34,7 +34,11 @@ start_time = time.time()
 # encoder
 ENCODER_BITS = 12
 ENCODER_PREC = 2 ** ENCODER_BITS
+ENCODER_SPI_MODE = int(os.environ.get('ENCODER_SPI_MODE', '0'))
+ENCODER_SPI_HZ = int(os.environ.get('ENCODER_SPI_HZ', '500000'))
+ENCODER_MAX_RETRIES = int(os.environ.get('ENCODER_MAX_RETRIES', '3'))
 encoder_error_logged = False
+gpio_error_logged = False
 
 
 def log_encoder_access_error(exc):
@@ -46,16 +50,36 @@ def log_encoder_access_error(exc):
         )
         encoder_error_logged = True
 
+
+def log_gpio_access_error(exc):
+    global gpio_error_logged
+    if not gpio_error_logged:
+        app.logger.error(
+            'GPIO access failed. Add your user to gpio group or run with sudo: %s',
+            exc
+        )
+        gpio_error_logged = True
+
 # Initializes a encoder object
 def initEncoder():
     try:
         encoder = spidev.SpiDev()
         encoder.open(0, 1)
-        encoder.max_speed_hz = 200000
+        encoder.max_speed_hz = ENCODER_SPI_HZ
+        encoder.mode = ENCODER_SPI_MODE
+        encoder.bits_per_word = 8
         return encoder
     except (PermissionError, FileNotFoundError, OSError) as exc:
         log_encoder_access_error(exc)
         return None
+
+
+def verifyEncoderChecksum(message):
+    # AMT22 checksum is the inverted XOR parity across pairs of bits.
+    checksum = 0x3
+    for i in range(0, 14, 2):
+        checksum ^= (message >> i) & 0x3
+    return checksum == (message >> 14)
 
 
 # Prompts encoder to send two byte position
@@ -65,14 +89,24 @@ def initEncoder():
 def readEncoder(encoder):
     if encoder is None:
         return None
-    encoder.writebytes([0x54])
-    angle_bytes = encoder.readbytes(2)
-    angle_byte_h = angle_bytes[0] & 0b00111111
-    angle_byte_l = angle_bytes[1] & 0b11111100
-    angle = angle_byte_h * 2 ** 8
-    angle = angle + angle_byte_l
-    angle = angle >> 2
-    return angle
+    for _ in range(ENCODER_MAX_RETRIES):
+        # AMT22 position read: transfer 0x00 0x00 in one CS transaction.
+        rx = encoder.xfer2([0x00, 0x00])
+        if len(rx) != 2:
+            continue
+
+        raw = (rx[0] << 8) | rx[1]
+        if not verifyEncoderChecksum(raw):
+            # AMT22 requires small timing gaps between transfers.
+            time.sleep(0.00001)
+            continue
+
+        position = raw & 0x3FFF
+        if ENCODER_BITS == 12:
+            position >>= 2
+        return position
+
+    return None
 
 
 # Give degrees, converts to binary 12-bit
@@ -90,7 +124,9 @@ def resetEncoder():
     encoder = initEncoder()
     if encoder is None:
         return False
-    encoder.writebytes([0x00, 0x70])
+    # AMT22 set-zero command is an extended command: 0x00 then 0x70.
+    encoder.xfer2([0x00, 0x70])
+    time.sleep(0.25)
     encoder.close()
     return True
 
@@ -100,9 +136,10 @@ def retrieveCode():
     encoder = initEncoder()
     if encoder is None:
         return None
-    code = readEncoder(encoder)
-    encoder.close()
-    return code
+    try:
+        return readEncoder(encoder)
+    finally:
+        encoder.close()
 
 
 def retrieveAngle():
@@ -228,18 +265,22 @@ def microstep_format_from_steps(microsteps):
 
 # Creates and returns rotator object
 def initRotator():
-    rotator = WaveshareStepper(
-        dir_pin=WS_DIR_PIN,
-        step_pin=WS_STEP_PIN,
-        enable_pin=WS_ENABLE_PIN,
-        mode_pins=WS_MODE_PINS,
-        control_mode=WS_CONTROL_MODE,
-        step_format=microstep_format_from_steps(MICROSTEPS),
-        enable_active_high=WS_ENABLE_ACTIVE_HIGH,
-        invert_dir=WS_INVERT_DIR,
-        pulse_width_sec=WS_STEP_PULSE_SEC,
-    )
-    return rotator
+    try:
+        rotator = WaveshareStepper(
+            dir_pin=WS_DIR_PIN,
+            step_pin=WS_STEP_PIN,
+            enable_pin=WS_ENABLE_PIN,
+            mode_pins=WS_MODE_PINS,
+            control_mode=WS_CONTROL_MODE,
+            step_format=microstep_format_from_steps(MICROSTEPS),
+            enable_active_high=WS_ENABLE_ACTIVE_HIGH,
+            invert_dir=WS_INVERT_DIR,
+            pulse_width_sec=WS_STEP_PULSE_SEC,
+        )
+        return rotator
+    except RuntimeError as exc:
+        log_gpio_access_error(exc)
+        return None
 
 
 # Create file_handler for file to record
@@ -255,6 +296,9 @@ def getRecordFile():
 # Moves the antenna to its current physical 0 angle
 def resetRotator():
     rotator = initRotator()
+    if rotator is None:
+        app.logger.warning('Cannot reset rotator because GPIO is unavailable.')
+        return
     encoder = initEncoder()
     if encoder is None:
         rotator.release()
@@ -281,6 +325,9 @@ def resetRotator():
 # Records if needed
 def rotateTillSeconds(sec, record, direction):
     rotator = initRotator()
+    if rotator is None:
+        app.logger.warning('Cannot rotate by seconds because GPIO is unavailable.')
+        return
     encoder = initEncoder() if record else None
     tic = time.time()
     if record:
@@ -319,6 +366,9 @@ def rotateTillSeconds(sec, record, direction):
 # Records if needed
 def rotateTillDegrees(deg, record, direction):
     rotator = initRotator()
+    if rotator is None:
+        app.logger.warning('Cannot rotate by degrees because GPIO is unavailable.')
+        return
     encoder = initEncoder()
     if encoder is None:
         rotator.release()
@@ -334,7 +384,13 @@ def rotateTillDegrees(deg, record, direction):
     sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
     next_step = time.monotonic()
     total = 0
-    memory1 = convertToDegree(readEncoder(encoder))
+    first_code = readEncoder(encoder)
+    if first_code is None:
+        rotator.release()
+        encoder.close()
+        app.logger.warning('Cannot rotate by degrees because encoder readings are invalid.')
+        return
+    memory1 = convertToDegree(first_code)
     step_count = 0
     while total < (deg - 2):
         rotator.onestep(direction=2 - direction)
@@ -344,7 +400,10 @@ def rotateTillDegrees(deg, record, direction):
         if remaining > 0:
             time.sleep(remaining)
         if step_count % MICROSTEPS == 0:
-            memory2 = convertToDegree(readEncoder(encoder))
+            code2 = readEncoder(encoder)
+            if code2 is None:
+                continue
+            memory2 = convertToDegree(code2)
             delta = abs(memory1 - memory2)
             if delta > 100:
                 delta = 360 - delta
