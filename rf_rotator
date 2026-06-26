@@ -7,11 +7,7 @@ import socket
 import sys
 import time
 
-import eventlet
-import eventlet.tpool
-eventlet.monkey_patch()
-
-from threading import Lock
+from threading import Lock, Thread
 from flask import Flask, render_template, redirect, session, request, \
     copy_current_request_context, url_for, jsonify
 from flask_socketio import SocketIO, emit, disconnect
@@ -24,7 +20,7 @@ import RPi.GPIO as GPIO
 # Set this variable to "threading", "eventlet" or "gevent" to test the
 # different async modes, or leave it set to None for the application to choose
 # the best option based on installed packages.
-async_mode = 'eventlet'
+async_mode = 'threading'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -340,16 +336,16 @@ def index():
         #           form.submit.data))
         if form.rot_till_sec.data == 1:
             if form.sec.data > 0:
-                eventlet.tpool.execute(rotateTillSeconds, form.sec.data, form.rcd.data,
+                start_motor_task(rotateTillSeconds, form.sec.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204) # Has to return something, don't want to refresh
         elif form.rot_till_agl.data == 1:
             if form.deg.data > 0:
-                eventlet.tpool.execute(rotateTillDegrees, form.deg.data, form.rcd.data,
+                start_motor_task(rotateTillDegrees, form.deg.data, form.rcd.data,
                         form.forward_or_backward.data)
             return ('',204)
         elif form.rst_to_zero.data == 1:
-            eventlet.tpool.execute(resetRotator)
+            start_motor_task(resetRotator)
             return ('',204)
         elif form.rst_encoder.data == 1:
             resetEncoder()
@@ -391,6 +387,13 @@ def test_connect():
     # emit('my_response', {'data': 'Connected', 'count': 0})
 
 
+def start_motor_task(target, *args):
+    # Run motor control calls in daemon threads so HTTP requests return immediately.
+    worker = Thread(target=target, args=args, daemon=True)
+    worker.start()
+
+
 if __name__ == '__main__':
-    socketio.run(app, ip, port=80,debug=False)
+    port = int(os.environ.get('RF_ROTATOR_PORT', '5000'))
+    socketio.run(app, ip, port=port, debug=False, allow_unsafe_werkzeug=True)
 

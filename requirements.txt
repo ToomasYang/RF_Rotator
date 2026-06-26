@@ -1,0 +1,6 @@
+Flask
+Flask-SocketIO
+Flask-WTF
+WTForms
+spidev
+RPi.GPIO

@@ -3,6 +3,27 @@
 # RF_Rotator
 *PLEASE NOTE:* This repository only includes the python code for the Raspberry Pi and the webpage. However, this does not include how to build the frame! It was 3D printed from a colleague, and I do not have the source files for it. (Sorry!)
 
+# Quick Setup (venv)
+
+Run this once on the Raspberry Pi to create a virtual environment and install Python packages:
+
+```bash
+chmod +x ./setup_venv.sh
+./setup_venv.sh
+```
+
+Use a custom venv path if needed:
+
+```bash
+./setup_venv.sh ~/rf_rotator_venv
+```
+
+Then run the app:
+
+```bash
+~/venv/bin/python ./rf_rotator
+```
+
 # Functionalities
 <img class="ui image" src="./images/controlpanel.png">
 
