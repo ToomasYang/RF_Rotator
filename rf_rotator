@@ -91,7 +91,7 @@ def retrieveCode():
 # rotator
 MICROSTEPS = 16
 REV_STEPS = 2 ** 8
-RPM = 5
+RPM = 10
 
 
 # Creates and returns rotator object
@@ -287,7 +287,7 @@ def index():
                 REFRESH_RATE = form.change_refresh.data
             return redirect(url_for('index')) # Refresh page
         elif form.rpmbutton.data == 1:
-            if (form.change_rpm.data > 0 and
+            if (form.change_rpm.data >= 10 and
                 form.change_rpm.data <= 30):
                 RPM = form.change_rpm.data
             return redirect(url_for('index')) 
