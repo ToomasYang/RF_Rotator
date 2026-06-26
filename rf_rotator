@@ -260,7 +260,7 @@ def scanEncoderCandidates(sample_count=4):
 MICROSTEPS = 16
 REV_STEPS = 2 ** 8
 RPM = 10
-DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.25'))
+DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.1'))
 
 # Waveshare Stepper Motor HAT channel/pin settings.
 # Set WS_MOTOR_CHANNEL to M1 or M2 in the environment as needed.
