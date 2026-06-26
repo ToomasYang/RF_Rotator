@@ -30,14 +30,18 @@
             // time from the ping is stored, and the average of the last 30
             // samples is average and displayed.
             socket.on('update_angle', function(msg, cb) {
-                $('#degree_rcv').text(Math.round(msg.angle));
+                if (msg.angle === null || msg.angle === undefined) {
+                    $('#degree_rcv').text('N/A');
+                } else {
+                    $('#degree_rcv').text(Math.round(msg.angle));
+                }
             });
         });
     </script>
 </head>
 <body>
     <h1>{{ title }}</h1>
-    <h2>Current Angle (Degree): <b><span id="degree_rcv"></span></b> </h2>
+    <h2>Current Angle (Degree): <b><span id="degree_rcv">{% if angle is not none %}{{ angle|round }}{% else %}N/A{% endif %}</span></b> </h2>
     <h2>Current Refresh Rate (Second): {{ refresh_rate }} </h2>
     <h2>Current Rotation Speed (RPM): {{ RPM }} </h2>
 

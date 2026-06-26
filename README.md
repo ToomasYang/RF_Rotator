@@ -24,6 +24,24 @@ Then run the app:
 ~/venv/bin/python ./rf_rotator
 ```
 
+# Troubleshooting: SPI Permission Denied
+
+If the app logs `PermissionError: [Errno 13]` when opening SPI, enable SPI and grant your user SPI access:
+
+```bash
+sudo raspi-config nonint do_spi 0
+sudo usermod -aG spi $USER
+sudo reboot
+```
+
+After reboot, verify device nodes exist:
+
+```bash
+ls -l /dev/spidev*
+```
+
+If your service runs as a custom user, make sure that user is in the `spi` group.
+
 # Functionalities
 <img class="ui image" src="./images/controlpanel.png">
 

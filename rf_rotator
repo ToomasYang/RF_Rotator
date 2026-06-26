@@ -34,13 +34,28 @@ start_time = time.time()
 # encoder
 ENCODER_BITS = 12
 ENCODER_PREC = 2 ** ENCODER_BITS
+encoder_error_logged = False
+
+
+def log_encoder_access_error(exc):
+    global encoder_error_logged
+    if not encoder_error_logged:
+        app.logger.error(
+            'Encoder SPI access failed. Enable SPI and grant /dev/spidev permissions: %s',
+            exc
+        )
+        encoder_error_logged = True
 
 # Initializes a encoder object
 def initEncoder():
-    encoder = spidev.SpiDev()
-    encoder.open(0, 1)
-    encoder.max_speed_hz = 200000
-    return encoder
+    try:
+        encoder = spidev.SpiDev()
+        encoder.open(0, 1)
+        encoder.max_speed_hz = 200000
+        return encoder
+    except (PermissionError, FileNotFoundError, OSError) as exc:
+        log_encoder_access_error(exc)
+        return None
 
 
 # Prompts encoder to send two byte position
@@ -48,6 +63,8 @@ def initEncoder():
 # -> XXXXXX XXXXXX (12 bits useful data)
 # combines and returns as angle
 def readEncoder(encoder):
+    if encoder is None:
+        return None
     encoder.writebytes([0x54])
     angle_bytes = encoder.readbytes(2)
     angle_byte_h = angle_bytes[0] & 0b00111111
@@ -71,16 +88,28 @@ def convertToDegree(code):
 # Set current physical position as the 0 angle
 def resetEncoder():
     encoder = initEncoder()
+    if encoder is None:
+        return False
     encoder.writebytes([0x00, 0x70])
     encoder.close()
+    return True
 
 # Retrieves code from encoder without the need
 # of encoder object
 def retrieveCode():
     encoder = initEncoder()
+    if encoder is None:
+        return None
     code = readEncoder(encoder)
     encoder.close()
     return code
+
+
+def retrieveAngle():
+    code = retrieveCode()
+    if code is None:
+        return None
+    return convertToDegree(code)
 
 
 # rotator
@@ -184,6 +213,9 @@ def getRecordFile():
 def resetRotator():
     rotator = initRotator()
     encoder = initEncoder()
+    if encoder is None:
+        rotator.release()
+        return
     sec_per_step = 60.0 / (REV_STEPS * RPM * MICROSTEPS)
     next_step = time.monotonic()
     step_count = 0
@@ -206,11 +238,16 @@ def resetRotator():
 # Records if needed
 def rotateTillSeconds(sec, record, direction):
     rotator = initRotator()
-    encoder = initEncoder()
+    encoder = initEncoder() if record else None
     tic = time.time()
     if record:
-        record_file = getRecordFile()
-        record_file.write("Start recording at %10.7f \n\n" % tic)
+        if encoder is None:
+            app.logger.warning('Record requested, but encoder is unavailable. Continuing without recording.')
+            record = False
+            record_file = None
+        else:
+            record_file = getRecordFile()
+            record_file.write("Start recording at %10.7f \n\n" % tic)
     else:
         record_file = None
 
@@ -224,14 +261,15 @@ def rotateTillSeconds(sec, record, direction):
         remaining = next_step - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
-        if record_file and step_count % MICROSTEPS == 0:
+        if record_file and encoder and step_count % MICROSTEPS == 0:
             record_file.write("%10.7f" % (time.time() - tic))
             record_file.write(" %10.7f\n" % convertToDegree(readEncoder(encoder)))
 
     if record_file:
         record_file.close()
     rotator.release()
-    encoder.close()
+    if encoder:
+        encoder.close()
 
 
 # Rotates the rotator at the set RPM for X degrees and direction
@@ -239,6 +277,10 @@ def rotateTillSeconds(sec, record, direction):
 def rotateTillDegrees(deg, record, direction):
     rotator = initRotator()
     encoder = initEncoder()
+    if encoder is None:
+        rotator.release()
+        app.logger.warning('Cannot rotate by degrees without encoder feedback.')
+        return
     tic = time.time()
     if record:
         record_file = getRecordFile()
@@ -288,7 +330,7 @@ s.close()
 def background_thread():
     while True:
         socketio.sleep(REFRESH_RATE)
-        update_degree = convertToDegree(retrieveCode())
+        update_degree = retrieveAngle()
         socketio.emit('update_angle', {'angle': update_degree}, namespace='/test')
 
         
@@ -319,7 +361,7 @@ def index():
     global REFRESH_RATE
     templateData = {
         'title': web_title,
-        'angle': round(convertToDegree(retrieveCode())),
+        'angle': retrieveAngle(),
         'RPM': RPM,
         'refresh_rate': REFRESH_RATE,
         'form': form
@@ -368,7 +410,9 @@ def index():
 
 @app.route('/angle.json')
 def return_json():
-    return jsonify(angle=round(convertToDegree(retrieveCode())),
+    angle = retrieveAngle()
+    rounded_angle = round(angle) if angle is not None else None
+    return jsonify(angle=rounded_angle,
             title = web_title,
             rpm = RPM,
             refresh_rate = REFRESH_RATE,
