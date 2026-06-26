@@ -90,6 +90,14 @@ http://<pi-ip>:5000/encoder_debug.json
 
 Use it to confirm whether raw SPI frames are changing while rotating.
 
+Quick bus/device/mode scan endpoint:
+
+```text
+http://<pi-ip>:5000/encoder_scan.json
+```
+
+This probes CE0/CE1 and SPI modes 0-3 and reports which combinations show changing raw values or valid checksums.
+
 # Troubleshooting: GPIO Access (/dev/mem)
 
 If motor actions fail with `RuntimeError: No access to /dev/mem`, grant GPIO access to the runtime user:

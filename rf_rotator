@@ -204,6 +204,58 @@ def readEncoderDiagnostics(sample_count=6):
         encoder.close()
 
 
+def scanEncoderCandidates(sample_count=4):
+    results = []
+    for device in (0, 1):
+        for mode in (0, 1, 2, 3):
+            entry = {
+                'spi_bus': ENCODER_SPI_BUS,
+                'spi_device': device,
+                'spi_mode': mode,
+                'spi_hz': ENCODER_SPI_HZ,
+                'byte_delay_us': ENCODER_BYTE_DELAY_US,
+            }
+
+            encoder = spidev.SpiDev()
+            try:
+                encoder.open(ENCODER_SPI_BUS, device)
+                encoder.max_speed_hz = ENCODER_SPI_HZ
+                encoder.mode = mode
+                encoder.bits_per_word = 8
+
+                raws = []
+                checksum_valid_count = 0
+                for _ in range(sample_count):
+                    rx = encoder.xfer2([0x00, 0x00], ENCODER_SPI_HZ, ENCODER_BYTE_DELAY_US)
+                    raw = (rx[0] << 8) | rx[1] if len(rx) == 2 else None
+                    if raw is not None:
+                        raws.append(raw)
+                        if verifyEncoderChecksum(raw):
+                            checksum_valid_count += 1
+                    time.sleep(0.003)
+
+                unique_raws = sorted(list(set(raws)))
+                entry.update({
+                    'raw_samples': raws,
+                    'unique_raw_values': unique_raws,
+                    'all_zero': len(unique_raws) == 1 and unique_raws[0] == 0 if unique_raws else False,
+                    'all_ones': len(unique_raws) == 1 and unique_raws[0] == 0xFFFF if unique_raws else False,
+                    'changing': len(unique_raws) > 1,
+                    'checksum_valid_count': checksum_valid_count,
+                })
+            except Exception as exc:
+                entry['error'] = str(exc)
+            finally:
+                try:
+                    encoder.close()
+                except Exception:
+                    pass
+
+            results.append(entry)
+
+    return {'candidates': results}
+
+
 # rotator
 MICROSTEPS = 16
 REV_STEPS = 2 ** 8
@@ -588,6 +640,11 @@ def encoder_debug_json():
                        spi_hz=ENCODER_SPI_HZ,
                        byte_delay_us=ENCODER_BYTE_DELAY_US), 503
     return jsonify(diagnostics)
+
+
+@app.route('/encoder_scan.json')
+def encoder_scan_json():
+    return jsonify(scanEncoderCandidates())
 
 # Every time a new client connects, run this function
 @socketio.on('connect', namespace='/test')
