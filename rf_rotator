@@ -257,8 +257,10 @@ def scanEncoderCandidates(sample_count=4):
 
 
 # rotator
-MICROSTEPS = 16
-REV_STEPS = 2 ** 8
+# Motor timing must match your physical motor and DIP microstep setting.
+# Typical NEMA17 1.8-degree motors are 200 full steps/rev.
+MOTOR_FULL_STEPS_PER_REV = int(os.environ.get('MOTOR_FULL_STEPS_PER_REV', '200'))
+MICROSTEPS = int(os.environ.get('MICROSTEPS', '16'))
 RPM = 10
 DEGREE_TOLERANCE_DEG = float(os.environ.get('DEGREE_TOLERANCE_DEG', '0.1'))
 speed_limit_warning_logged = False
@@ -374,11 +376,11 @@ def microstep_format_from_steps(microsteps):
 
 def calc_sec_per_step(rpm):
     global speed_limit_warning_logged
-    requested = 60.0 / (REV_STEPS * rpm * MICROSTEPS)
+    requested = 60.0 / (MOTOR_FULL_STEPS_PER_REV * rpm * MICROSTEPS)
     min_pulse_period = WS_STEP_PULSE_SEC * 2.0
     if requested < min_pulse_period:
         if not speed_limit_warning_logged:
-            max_effective_rpm = 60.0 / (REV_STEPS * MICROSTEPS * min_pulse_period)
+            max_effective_rpm = 60.0 / (MOTOR_FULL_STEPS_PER_REV * MICROSTEPS * min_pulse_period)
             app.logger.warning(
                 'Requested RPM is above pulse-timing limit. '\
                 'Increase speed by lowering WS_STEP_PULSE_SEC. '\

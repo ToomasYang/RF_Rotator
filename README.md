@@ -155,6 +155,15 @@ RPM note:
 
 - Speed is limited by step pulse timing (`WS_STEP_PULSE_SEC`).
 - If RPM changes do not appear to take effect at higher values, lower pulse width (for example `WS_STEP_PULSE_SEC=0.0001`).
+- RPM accuracy depends on matching software constants to hardware:
+  - `MOTOR_FULL_STEPS_PER_REV` (usually `200` for 1.8-degree motors)
+  - `MICROSTEPS` must match your DIP setting (`1, 2, 4, 8, 16, 32`)
+
+Example (1.8-degree motor at 1/32 microstepping):
+
+```bash
+MOTOR_FULL_STEPS_PER_REV=200 MICROSTEPS=32 ~/venv/bin/python ./rf_rotator
+```
 
 Degree rotation tuning:
 
