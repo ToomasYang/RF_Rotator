@@ -64,9 +64,19 @@ If your service runs as a custom user, make sure that user is in the `spi` group
 
 - The motor control code in `rf_rotator` now uses the DRV8825 GPIO interface used by the Waveshare Stepper Motor HAT.
 - Default motor channel is M1 (BCM pins DIR=13, STEP=19, EN=12, MODE=16/17/20).
-- If your wiring is on M2 or uses different pins, update `WS_DIR_PIN`, `WS_STEP_PIN`, `WS_ENABLE_PIN`, and `WS_MODE_PINS` in `rf_rotator`.
+- Set `WS_MOTOR_CHANNEL=M2` before launching if your motor is connected to M2 (DIR=24, STEP=18, EN=4, MODE=21/22/27).
 - `WS_CONTROL_MODE = 'hardward'` means microstep mode comes from DIP switches.
 - Keep `MICROSTEPS` in code consistent with the DIP microstep setting so timing and degree calculations remain accurate.
+- If the motor still does not move, try these runtime flags:
+  - `WS_ENABLE_ACTIVE_HIGH=0` for older active-low enable boards.
+  - `WS_INVERT_DIR=1` if direction is reversed.
+  - Increase pulse width: `WS_STEP_PULSE_SEC=0.002`.
+
+Example launch:
+
+```bash
+WS_MOTOR_CHANNEL=M1 WS_ENABLE_ACTIVE_HIGH=1 WS_STEP_PULSE_SEC=0.002 ~/venv/bin/python ./rf_rotator
+```
 
 # Improvements / Problems
 - Page remains unresponsive once you start rotating (still updates angle reading), becomes responsive once it stops rotating
